@@ -60,3 +60,4 @@ curl -X POST http://127.0.0.1:8000/predict \
 
 The "deploy" step here just prints a message and uploads the trained model as an artifact — no cloud account needed. Once you understand the flow, you can swap the "Simulate deploy" step for a real deploy (Render, Fly.io, AWS, etc.).
 # trigger demo
+# trigger2 demo
