@@ -1,17 +1,32 @@
 name: CI
-
+#Every time you push code or open a PR, this workflow 
+#automatically runs your ML pipeline + tests.
+#It runs when:
+#
+#You push code to dev, staging, or main
+#You create a pull request targeting those branches
 on:
   pull_request:
     branches: [dev, staging, main]
   push:
     branches: [dev, staging, main]
+# This means:
 
+# GitHub spins up a fresh virtual machine (VM)
+# OS = Linux (Ubuntu)
+#
+# You asked earlier who provides this →
+# GitHub gives you a temporary cloud machine for each run.
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4 #git clone <your-repo>
 
+# This:
+
+# Installs Python 3.11
+# Enables pip caching → faster installs next time
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -33,3 +48,18 @@ jobs:
           name: model-${{ github.sha }}
           path: model.pkl
           retention-days: 7
+
+
+# Code pushed / PR created
+#         ↓
+# GitHub starts VM
+#         ↓
+# Clone repo
+#         ↓
+# Install Python + dependencies
+#         ↓
+# Train model
+#         ↓
+# Run tests
+#         ↓
+# Save trained model as artifact

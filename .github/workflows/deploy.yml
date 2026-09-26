@@ -1,30 +1,73 @@
 name: Deploy
+# This workflow takes the trained model and "ships" it to an environment
+# (dev / staging / prod) every time code lands on one of those branches.
+#
+# CI vs Deploy:
+#   - ci.yml      → runs on PRs + pushes, just verifies the code/model is good
+#   - deploy.yml  → runs only on push (i.e. AFTER a PR is merged) and actually
+#                   deploys the artifact to a real environment.
 
 on:
   push:
     branches: [dev, staging, main]
+# Notice: no `pull_request:` here.
+# We don't deploy from a PR — we deploy only after code is merged into
+# one of the long-lived branches.
 
 jobs:
+  # ---------------------------------------------------------------
+  # JOB 1: resolve-env
+  # ---------------------------------------------------------------
+  # Purpose: figure out WHICH environment we are deploying to,
+  # based on the branch that was just pushed.
+  #
+  #   push to dev      →  env_name = dev
+  #   push to staging  →  env_name = staging
+  #   push to main     →  env_name = prod   (note: main maps to "prod")
+  #
+  # This job does no deployment itself — it just computes a value
+  # and hands it to the next job via `outputs`.
   resolve-env:
     runs-on: ubuntu-latest
     outputs:
+      # Expose `env_name` so the next job (`deploy`) can read it via
+      # needs.resolve-env.outputs.env_name
       env_name: ${{ steps.pick.outputs.env_name }}
     steps:
       - id: pick
         run: |
+          # GITHUB_REF_NAME = the branch name that triggered this run
+          # We write `env_name=<value>` into $GITHUB_OUTPUT, which is
+          # GitHub's official way for a step to publish an output.
           case "${GITHUB_REF_NAME}" in
             dev)     echo "env_name=dev"     >> "$GITHUB_OUTPUT" ;;
             staging) echo "env_name=staging" >> "$GITHUB_OUTPUT" ;;
             main)    echo "env_name=prod"    >> "$GITHUB_OUTPUT" ;;
           esac
 
+  # ---------------------------------------------------------------
+  # JOB 2: deploy
+  # ---------------------------------------------------------------
+  # This job actually performs the deployment.
   deploy:
+    # `needs:` makes this job wait until `resolve-env` finishes successfully.
+    # Without it, both jobs would run in parallel and we wouldn't know the env.
     needs: resolve-env
-    runs-on: ubuntu-latest
-    environment: ${{ needs.resolve-env.outputs.env_name }}
-    steps:
-      - uses: actions/checkout@v4
 
+    runs-on: ubuntu-latest
+
+    # `environment:` ties this job to a GitHub "Environment" of the same name
+    # (dev / staging / prod). Environments are powerful because they let you:
+    #   - require manual approvals before deploying (e.g. for prod)
+    #   - store environment-specific secrets (e.g. PROD_API_KEY)
+    #   - restrict which branches can deploy to them
+    # Configure these under: Repo → Settings → Environments
+    environment: ${{ needs.resolve-env.outputs.env_name }}
+
+    steps:
+      - uses: actions/checkout@v4   # git clone <your-repo>
+
+      # Same Python setup as ci.yml — fresh VM means we install from scratch.
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -34,16 +77,42 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # We retrain here for simplicity. In a real pipeline you would instead
+      # DOWNLOAD the model artifact that ci.yml already produced, to guarantee
+      # you deploy the EXACT same bytes that were tested.
       - name: Train model
         run: python train.py
 
+      # "Simulate" deploy — in a real project this step would:
+      #   - push the model to S3 / a model registry
+      #   - update a Kubernetes deployment
+      #   - call a cloud provider API, etc.
+      # For teaching, we just print what WOULD happen.
       - name: Simulate deploy
         run: |
           echo "Deploying commit ${GITHUB_SHA} to ${{ needs.resolve-env.outputs.env_name }}"
           ls -lh model.pkl
 
+      # Save the deployed model as an artifact, tagged with both the
+      # environment name AND the commit SHA, so you can always trace
+      # "which model went to prod on which commit".
       - name: Upload model artifact
         uses: actions/upload-artifact@v4
         with:
           name: model-${{ needs.resolve-env.outputs.env_name }}-${{ github.sha }}
           path: model.pkl
+
+
+# End-to-end flow:
+#
+# Push to dev / staging / main
+#         ↓
+# Job 1: resolve-env
+#   - Look at branch name
+#   - Output env_name (dev / staging / prod)
+#         ↓
+# Job 2: deploy   (waits for Job 1 via `needs:`)
+#   - Bind to GitHub Environment (approvals + secrets apply here)
+#   - Checkout, install deps, train model
+#   - "Deploy" (simulated)
+#   - Upload model artifact tagged with env + commit SHA
