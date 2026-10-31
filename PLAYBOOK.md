@@ -1,4 +1,4 @@
-# CI/CD Teaching Playbook
+# CI/CD Teaching Playbook for beginners
 
 Starting branch: **`demo/new-run`** (created off `main`, all three environments synced). Repo: `SmitTiwary/cicd-demo`.
 
